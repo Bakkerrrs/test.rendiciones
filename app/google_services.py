@@ -1,22 +1,20 @@
-"""Integración con Google Drive (subida de imagen) y Google Sheets (registro).
+"""Integración con Google Cloud Storage (imágenes) y Google Sheets (registro).
 
 Todas las funciones de este módulo son síncronas (las librerías de Google no
 son async); el llamador debe ejecutarlas con asyncio.to_thread.
 """
 
-import io
 import logging
 
 import gspread
+from google.cloud import storage
 from google.oauth2.service_account import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
 
 logger = logging.getLogger(__name__)
 
 _SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/devstorage.read_write",
 ]
 
 _credentials: Credentials | None = None
@@ -31,37 +29,26 @@ def _get_credentials(service_account_info: dict) -> Credentials:
     return _credentials
 
 
-def upload_image_to_drive(
+def upload_image_to_gcs(
     service_account_info: dict,
-    folder_id: str,
+    bucket_name: str,
     image_bytes: bytes,
     filename: str,
     mime_type: str = "image/jpeg",
 ) -> str:
-    """Sube la imagen a la carpeta de Drive y devuelve un link compartible."""
+    """Sube la imagen al bucket y devuelve su URL pública.
+
+    El bucket debe tener lectura pública a nivel de bucket
+    (allUsers: roles/storage.objectViewer) para que el link del Sheet
+    sea visible sin autenticación.
+    """
     creds = _get_credentials(service_account_info)
-    drive = build("drive", "v3", credentials=creds, cache_discovery=False)
-
-    media = MediaIoBaseUpload(io.BytesIO(image_bytes), mimetype=mime_type)
-    file = (
-        drive.files()
-        .create(
-            body={"name": filename, "parents": [folder_id]},
-            media_body=media,
-            fields="id, webViewLink",
-            supportsAllDrives=True,
-        )
-        .execute()
+    client = storage.Client(
+        project=service_account_info.get("project_id"), credentials=creds
     )
-
-    # Link compartible: cualquiera con el enlace puede ver.
-    drive.permissions().create(
-        fileId=file["id"],
-        body={"type": "anyone", "role": "reader"},
-        supportsAllDrives=True,
-    ).execute()
-
-    return file["webViewLink"]
+    blob = client.bucket(bucket_name).blob(filename)
+    blob.upload_from_string(image_bytes, content_type=mime_type)
+    return f"https://storage.googleapis.com/{bucket_name}/{filename}"
 
 
 def append_receipt_row(

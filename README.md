@@ -1,8 +1,13 @@
-# Bot de rendiciones — Telegram + OCR + Google Sheets/Drive
+# Bot de rendiciones — Telegram + OCR + Google Sheets/Cloud Storage
 
 Bot de Telegram que recibe fotos de boletas/recibos, extrae los datos con
 OpenAI `gpt-4o` (Vision, salida estructurada), sube la imagen original a
-Google Drive y registra todo en Google Sheets.
+Google Cloud Storage y registra todo en Google Sheets.
+
+> Nota: las imágenes se guardan en un bucket de Cloud Storage y no en
+> Google Drive porque las service accounts no tienen cuota de
+> almacenamiento en Drive (error `storageQuotaExceeded`); Drive solo es
+> viable con unidades compartidas de Google Workspace.
 
 ## Flujo
 
@@ -10,8 +15,8 @@ Google Drive y registra todo en Google Sheets.
 2. El webhook (`POST /webhook`) valida que el mensaje traiga una imagen
    (foto o documento con `mime_type` de imagen; texto y stickers se ignoran).
 3. Se descarga la imagen vía `getFile` de Telegram.
-4. Se sube el original a una carpeta de Google Drive y se obtiene un link
-   compartible.
+4. Se sube el original a un bucket de Cloud Storage y se obtiene su URL
+   pública.
 5. `gpt-4o` extrae `fecha_boleta` (YYYY-MM-DD o null), `descripcion` y
    `monto` (entero, pesos chilenos).
 6. Se agrega una fila al Sheet: **Fecha de Subida** (hora de
@@ -27,7 +32,7 @@ app/
 ├── config.py            # Variables de entorno y credenciales
 ├── telegram_client.py   # getFile, descarga, sendMessage
 ├── ocr.py               # gpt-4o Vision con json_schema
-└── google_services.py   # Drive (subida) + Sheets (append_row)
+└── google_services.py   # Cloud Storage (subida) + Sheets (append_row)
 ```
 
 ## Variables de entorno
@@ -37,7 +42,7 @@ app/
 | `TELEGRAM_BOT_TOKEN` | ✅ | Token del bot (de @BotFather) |
 | `OPENAI_API_KEY` | ✅ | API key de OpenAI |
 | `GOOGLE_SHEET_ID` | ✅ | ID del spreadsheet (está en su URL) |
-| `GDRIVE_FOLDER_ID` | ✅ | ID de la carpeta de Drive (está en su URL) |
+| `GCS_BUCKET_NAME` | ✅ | Nombre del bucket de Cloud Storage para las imágenes |
 | `GOOGLE_SERVICE_ACCOUNT_FILE` | una de las dos | Ruta al JSON de la service account |
 | `GOOGLE_SERVICE_ACCOUNT_B64` | una de las dos | El JSON de la service account en base64 |
 | `TELEGRAM_WEBHOOK_SECRET` | opcional | Valida el header `X-Telegram-Bot-Api-Secret-Token` |
@@ -46,22 +51,37 @@ app/
 
 Copia `.env.example` a `.env` como punto de partida para correr en local.
 
-## 1. Crear la service account y compartir accesos
+## 1. Crear la service account, el bucket y compartir accesos
 
 1. En [Google Cloud Console](https://console.cloud.google.com), crea (o elige)
-   un proyecto y habilita las APIs **Google Sheets API** y **Google Drive API**
+   un proyecto y habilita las APIs **Google Sheets API** y **Cloud Storage**
    (APIs & Services → Enable APIs).
 2. Ve a **IAM & Admin → Service Accounts → Create Service Account**. No
    necesita roles del proyecto.
 3. Entra a la service account → **Keys → Add Key → Create new key → JSON** y
    descarga el archivo (ej. `service-account.json`). **No lo commitees.**
-4. Copia el email de la service account (algo como
-   `mi-bot@mi-proyecto.iam.gserviceaccount.com`) y compárte con él:
-   - El **Google Sheet**: botón "Compartir" → pegar el email → rol **Editor**.
-   - La **carpeta de Drive** donde irán las imágenes: "Compartir" → pegar el
-     email → rol **Editor** (o "Administrador de contenido" si es una unidad
-     compartida).
-5. Deja la primera fila del Sheet con los encabezados:
+4. Crea el bucket para las imágenes y dale los permisos (lectura pública
+   para que los links del Sheet se abran sin autenticación, y escritura
+   para la service account):
+
+   ```bash
+   gcloud storage buckets create gs://MI-BUCKET-BOLETAS \
+     --location=us-central1 --uniform-bucket-level-access
+
+   gcloud storage buckets add-iam-policy-binding gs://MI-BUCKET-BOLETAS \
+     --member=allUsers --role=roles/storage.objectViewer
+
+   gcloud storage buckets add-iam-policy-binding gs://MI-BUCKET-BOLETAS \
+     --member=serviceAccount:mi-bot@mi-proyecto.iam.gserviceaccount.com \
+     --role=roles/storage.objectAdmin
+   ```
+
+   El nombre del bucket es global en todo Google Cloud; si está tomado,
+   elige otro. Ese nombre va en `GCS_BUCKET_NAME`.
+5. Copia el email de la service account (algo como
+   `mi-bot@mi-proyecto.iam.gserviceaccount.com`) y comparte con él el
+   **Google Sheet**: botón "Compartir" → pegar el email → rol **Editor**.
+6. Deja la primera fila del Sheet con los encabezados:
    `Fecha de Subida | Fecha de Boleta | Descripción | Monto | Link Imagen`.
 
 Para pasar las credenciales por variable en vez de archivo (útil en Cloud Run):
@@ -124,7 +144,7 @@ gcloud run deploy rendiciones-bot \
   --source . \
   --region us-central1 \
   --allow-unauthenticated \
-  --set-env-vars "TELEGRAM_BOT_TOKEN=...,OPENAI_API_KEY=...,GOOGLE_SHEET_ID=...,GDRIVE_FOLDER_ID=...,GOOGLE_SERVICE_ACCOUNT_B64=$(base64 -w0 service-account.json),TELEGRAM_WEBHOOK_SECRET=..."
+  --set-env-vars "TELEGRAM_BOT_TOKEN=...,OPENAI_API_KEY=...,GOOGLE_SHEET_ID=...,GCS_BUCKET_NAME=...,GOOGLE_SERVICE_ACCOUNT_B64=$(base64 -w0 service-account.json),TELEGRAM_WEBHOOK_SECRET=..."
 ```
 
 (Para producción es preferible guardar los secretos en Secret Manager y

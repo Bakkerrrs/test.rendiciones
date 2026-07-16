@@ -25,7 +25,7 @@ class Settings:
         self.telegram_bot_token = _require("TELEGRAM_BOT_TOKEN")
         self.openai_api_key = _require("OPENAI_API_KEY")
         self.google_sheet_id = _require("GOOGLE_SHEET_ID")
-        self.gdrive_folder_id = _require("GDRIVE_FOLDER_ID")
+        self.gcs_bucket_name = _require("GCS_BUCKET_NAME")
         # Opcional: token secreto de Telegram para validar el webhook
         # (header X-Telegram-Bot-Api-Secret-Token).
         self.telegram_webhook_secret = os.environ.get(

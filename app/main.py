@@ -1,4 +1,4 @@
-"""Bot de Telegram para rendiciones: OCR de boletas → Google Drive + Sheets."""
+"""Bot de Telegram para rendiciones: OCR de boletas → Cloud Storage + Sheets."""
 
 import asyncio
 import logging
@@ -113,10 +113,10 @@ async def _process_receipt(
     extension = mime_type.split("/")[-1] if "/" in mime_type else "jpg"
     filename = f"boleta_{now.strftime('%Y%m%d_%H%M%S')}_{file_id[-8:]}.{extension}"
 
-    drive_link = await asyncio.to_thread(
-        google_services.upload_image_to_drive,
+    image_link = await asyncio.to_thread(
+        google_services.upload_image_to_gcs,
         settings.service_account_info,
-        settings.gdrive_folder_id,
+        settings.gcs_bucket_name,
         image_bytes,
         filename,
         mime_type,
@@ -134,7 +134,7 @@ async def _process_receipt(
         fecha_boleta or "",
         descripcion,
         monto,
-        drive_link,
+        image_link,
     ]
     await asyncio.to_thread(
         google_services.append_receipt_row,
