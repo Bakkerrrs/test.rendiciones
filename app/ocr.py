@@ -38,8 +38,11 @@ _RECEIPT_SCHEMA = {
                 "monto": {
                     "type": "integer",
                     "description": (
-                        "Monto total en pesos chilenos, como entero sin "
-                        "separadores de miles ni símbolo de moneda. Ej: 15990."
+                        "Monto total FINAL efectivamente pagado, en pesos "
+                        "chilenos, como entero sin separadores de miles ni "
+                        "símbolo de moneda. Ej: 15990. Si hay propina o el "
+                        "monto pagado (forma de pago) difiere del monto de la "
+                        "boleta, usar el monto pagado."
                     ),
                 },
             },
@@ -53,7 +56,13 @@ _PROMPT = (
     "Eres un asistente que extrae datos de boletas y recibos chilenos. "
     "Analiza la imagen y extrae: fecha_boleta (fecha de emisión, formato "
     "YYYY-MM-DD, null si no es visible), descripcion (breve, en español) y "
-    "monto (total en pesos chilenos como entero, ej. $15.990 -> 15990)."
+    "monto (total en pesos chilenos como entero, ej. $15.990 -> 15990). "
+    "Para el monto, usa el total FINAL efectivamente pagado por el cliente: "
+    "si la boleta incluye propina, o si el monto junto a la forma de pago "
+    "(ej. tarjeta, MercadoPago, Transbank) es distinto del 'monto boleta', "
+    "prefiere ese monto pagado final, que suele aparecer más abajo en el "
+    "recibo. Nunca uses subtotales de ítems, el IVA ni números que no sean "
+    "un total (RUT, número de boleta, dirección)."
 )
 
 
